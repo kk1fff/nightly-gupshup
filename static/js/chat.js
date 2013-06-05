@@ -116,13 +116,10 @@ function initiateCall(user) {
   document.getElementById("main").style.display = "none";
   document.getElementById("call").style.display = "block";
 
-  navigator.mozGetUserMedia({video:true, audio:true}, function(stream) {
-    document.getElementById("localvideo").mozSrcObject = stream;
-    document.getElementById("localvideo").play();
-    document.getElementById("localvideo").muted = true;
-
+  navigator.mozGetUserMedia({fake:true, audio:true}, function(stream) {
     var pc = new mozRTCPeerConnection();
     pc.addStream(stream);
+    var dc1 = pc.createDataChannel("Data channel", {protocol: "text/plain", preset:true, stream: 5});
 
     pc.onaddstream = function(obj) {
       log("Got onaddstream of type " + obj.type);

@@ -141,7 +141,7 @@ app.post("/logout", function(req, res) {
 
 var users = {};
 var port = process.env.PORT || 5000;
-var audience = process.env.AUDIENCE || "http://gupshup.herokuapp.com";
+var audience = process.env.AUDIENCE || "http://localhost/";
 
 app.listen(port, function() {
   console.log("Port is " + port + " with audience " + audience);

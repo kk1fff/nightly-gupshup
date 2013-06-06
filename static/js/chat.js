@@ -8,6 +8,7 @@ if (!console || !console.log) {
 // Ugh, globals.
 var peerc;
 var source = new EventSource("events");
+var dataChannel;
 
 $("#incomingCall").modal();
 $("#incomingCall").modal("hide");
@@ -39,7 +40,7 @@ source.addEventListener("offer", function(e) {
 
 source.addEventListener("answer", function(e) {
   var answer = JSON.parse(e.data);
-  peerc.setRemoteDescription(JSON.parse(answer.answer), function() {
+  peerc.setRemoteDescription(new mozRTCSessionDescription(JSON.parse(answer.answer)), function() {
     console.log("Call established!");
   }, error);
 }, false);
@@ -70,34 +71,56 @@ function removeUser(user) {
   }
 }
 
+function logInBox(msg) {
+  function replacer(s) {
+    switch (s) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+    }
+    return s;
+  }
+  var p = $('<p>' + msg.replace(/[<>&]/, replacer) + '</p>');
+  $('#logview').append(p);
+}
+
+function setupDataChannel() {
+  dataChannel.binaryType = "blob";
+  dataChannel.onmessage = function(evt) {
+    if (evt.data instanceof Blob) {
+      logInBox("Remote sent Blob >> " + evt.data);
+    } else {
+      logInBox("Remote >> " + evt.data);
+    }
+  };
+
+  dataChannel.onopen = function() {
+    dataChannel.send("Hello...");
+  };
+  dataChannel.onclose = function() {
+    logInBox("onclose fired");
+  };
+}
+
 // TODO: refactor, this function is almost identical to initiateCall().
 function acceptCall(offer) {
-  log("Incoming call with offer " + offer);
-  document.getElementById("main").style.display = "none";
-  document.getElementById("call").style.display = "block";
-
-  navigator.mozGetUserMedia({video:true, audio:true}, function(stream) {
-    document.getElementById("localvideo").mozSrcObject = stream;
-    document.getElementById("localvideo").play();
-    document.getElementById("localvideo").muted = true;
-
+  navigator.mozGetUserMedia({fake:true, audio:true}, function(stream) {
     var pc = new mozRTCPeerConnection();
     pc.addStream(stream);
+    dataChannel = pc.createDataChannel("Data channel", {protocol: "text/plain", preset:true, stream: 5});
+    setupDataChannel();
 
     pc.onaddstream = function(obj) {
-      document.getElementById("remotevideo").mozSrcObject = obj.stream;
-      document.getElementById("remotevideo").play();
-      document.getElementById("dialing").style.display = "none";
-      document.getElementById("hangup").style.display = "block";
     };
-
-    pc.setRemoteDescription(JSON.parse(offer.offer), function() {
+    console.log("offer.offer.type: " + JSON.parse(offer.offer).type);
+    pc.setRemoteDescription(new mozRTCSessionDescription(JSON.parse(offer.offer)), function() {
       log("setRemoteDescription, creating answer");
       pc.createAnswer(function(answer) {
         pc.setLocalDescription(answer, function() {
           // Send answer to remote end.
           log("created Answer and setLocalDescription " + JSON.stringify(answer));
           peerc = pc;
+          log("Create answer: " + JSON.stringify(answer));
           jQuery.post(
             "answer", {
               to: offer.from,
@@ -109,24 +132,21 @@ function acceptCall(offer) {
         }, error);
       }, error);
     }, error);
+    console.log("setRemoteDescription done");
   }, error);
 }
 
 function initiateCall(user) {
   document.getElementById("main").style.display = "none";
-  document.getElementById("call").style.display = "block";
 
   navigator.mozGetUserMedia({fake:true, audio:true}, function(stream) {
     var pc = new mozRTCPeerConnection();
     pc.addStream(stream);
-    var dc1 = pc.createDataChannel("Data channel", {protocol: "text/plain", preset:true, stream: 5});
+    dataChannel = pc.createDataChannel("Data channel", {protocol: "text/plain", preset:true, stream: 5});
+    setupDataChannel();
 
     pc.onaddstream = function(obj) {
       log("Got onaddstream of type " + obj.type);
-      document.getElementById("remotevideo").mozSrcObject = obj.stream;
-      document.getElementById("remotevideo").play();
-      document.getElementById("dialing").style.display = "none";
-      document.getElementById("hangup").style.display = "block";
     };
 
     pc.createOffer(function(offer) {
@@ -135,6 +155,7 @@ function initiateCall(user) {
         // Send offer to remote end.
         log("setLocalDescription, sending to remote");
         peerc = pc;
+        console.log("will send offer: " + JSON.stringify(offer));
         jQuery.post(
           "offer", {
             to: user,
@@ -145,18 +166,16 @@ function initiateCall(user) {
         ).error(error);
       }, error);
     }, error);
+
+    pc.onconnection = function() {
+      
+    };
   }, error);
 }
 
 function endCall() {
   log("Ending call");
-  document.getElementById("call").style.display = "none";
   document.getElementById("main").style.display = "block";
-
-  document.getElementById("localvideo").mozSrcObject.stop();
-  document.getElementById("localvideo").mozSrcObject = null;
-  document.getElementById("remotevideo").mozSrcObject = null;
-
   peerc.close();
   peerc = null;
 }
@@ -169,3 +188,11 @@ function error(e) {
   }
   endCall();
 }
+
+$(document).load(function() {
+  $("#button_send").click(function() {
+    var msg = $('#text_message').text();
+    dataChannel.send(msg);
+    logInBox("Send >> " + msg);
+  });
+});

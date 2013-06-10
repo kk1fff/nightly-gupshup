@@ -46,8 +46,7 @@ source.addEventListener("answer", function(e) {
 }, false);
 
 function log(info) {
-  var d = document.getElementById("debug");
-  d.innerHTML += info + "\n\n";
+  logInBox("Log >> " + info);
 }
 
 function appendUser(user) {
@@ -80,7 +79,19 @@ function logInBox(msg) {
     }
     return s;
   }
+
+  function setStyle(p, msg) {
+    if (msg.match(/^Send >>/)) {
+      p.css('color', 'blue');
+    } else if (msg.match(/^Remote >>/)) {
+      p.css('color', 'green');
+    } else if (msg.match(/^Log >>/)) {
+      p.css('font-weight', 'bold');
+    }
+  }
+
   var p = $('<p>' + msg.replace(/[<>&]/, replacer) + '</p>');
+  setStyle(p, msg);
   $('#logview').append(p);
 }
 
@@ -88,7 +99,7 @@ function setupDataChannel() {
   dataChannel.binaryType = "blob";
   dataChannel.onmessage = function(evt) {
     if (evt.data instanceof Blob) {
-      logInBox("Remote sent Blob >> " + evt.data);
+      logInBox("Remote-Blob >> " + evt.data);
     } else {
       logInBox("Remote >> " + evt.data);
     }
@@ -96,9 +107,30 @@ function setupDataChannel() {
 
   dataChannel.onopen = function() {
     dataChannel.send("Hello...");
+    var c = 0;
+    (function sendTestPacket() {
+      if (dataChannel.readyState != 'open') {
+        return;
+      }
+      dataChannel.send("counter: " + c++);
+      logInBox("Send >> counter: " + c);
+      setTimeout(sendTestPacket, 1000);
+    })();
   };
   dataChannel.onclose = function() {
     logInBox("onclose fired");
+  };
+}
+
+function setupPeerConnection(pc) {
+  pc.onaddstream = function(obj) {
+    log("Got onaddstream of type " + obj.type);
+  };
+  pc.onconnection = function() {
+    log("onconnection");
+  };
+  pc.oniceconnectionstatechange = function() {
+    log("oniceconnectionstatechange: " + pc.iceConnectionState);
   };
 }
 
@@ -109,9 +141,7 @@ function acceptCall(offer) {
     pc.addStream(stream);
     dataChannel = pc.createDataChannel("Data channel", {protocol: "text/plain", preset:true, stream: 5});
     setupDataChannel();
-
-    pc.onaddstream = function(obj) {
-    };
+    setupPeerConnection(pc);
     console.log("offer.offer.type: " + JSON.parse(offer.offer).type);
     pc.setRemoteDescription(new mozRTCSessionDescription(JSON.parse(offer.offer)), function() {
       log("setRemoteDescription, creating answer");
@@ -127,7 +157,9 @@ function acceptCall(offer) {
               from: offer.to,
               answer: JSON.stringify(answer)
             },
-            function() { console.log("Answer sent!"); }
+            function() {
+              console.log("Answer sent!");
+            }
           ).error(error);
         }, error);
       }, error);
@@ -144,11 +176,7 @@ function initiateCall(user) {
     pc.addStream(stream);
     dataChannel = pc.createDataChannel("Data channel", {protocol: "text/plain", preset:true, stream: 5});
     setupDataChannel();
-
-    pc.onaddstream = function(obj) {
-      log("Got onaddstream of type " + obj.type);
-    };
-
+    setupPeerConnection(pc);
     pc.createOffer(function(offer) {
       log("Created offer" + JSON.stringify(offer));
       pc.setLocalDescription(offer, function() {
@@ -166,10 +194,6 @@ function initiateCall(user) {
         ).error(error);
       }, error);
     }, error);
-
-    pc.onconnection = function() {
-      
-    };
   }, error);
 }
 
